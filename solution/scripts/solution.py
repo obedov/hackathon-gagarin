@@ -3,8 +3,9 @@ import csv
 import pandas as pd
 import asyncio
 import aiohttp
-from tqdm.asyncio import tqdm_asyncio
 from io import StringIO
+from aiohttp import ClientSession, ClientTimeout
+from tqdm.asyncio import tqdm_asyncio
 
 
 async def load_tickers(filepath):
@@ -103,54 +104,60 @@ async def call_openai_api(session, api_key, request_data):
         return None
 
 
-async def process_and_evaluate_single_message(session, row, api_key):
+async def process_and_evaluate_single_message(semaphore, session, row, api_key):
     """Asynchronously process and evaluate sentiment of a message in a single API call."""
-    instruction = (
-        f"Раздели этот текст на список тикеров и сообщений, относящимся к ним, строго в формате: "
-        f"#TICKER (название компании): сообщение (в одно предложение без переноса), с новой строки для каждого тикера, "
-        f"без дублирования и без генерации своего текста. Затем оцени сентимент каждой пары #TICKER (компания): сообщение, на шкале от 0 до 5, "
-        f"добавив после сообщения 'Оценка: число', где: 0 означает отсутствие информации, 1 - очень негативная информация, "
-        f"2 - скорее негативная информация, 3 - нейтральная информация, 4 - положительная информация, 5 - очень положительная информация."
-        f"ВНИМАНИЕ: Оценку следует добавить строго в этой же строке, без переноса на другу строку, даже если строка длинная и в ней есть непонятные символы. Это очень строгое условие. \n\n{row['MessageText']}"
-    )
-    messages = [{'role': 'user', 'content': instruction}]
-    request_data = {
-        'model': 'gpt-3.5-turbo',
-        'messages': messages
-    }
-    # Вызываем функцию call_openai_api для отправки запроса
-    api_response = await call_openai_api(session, api_key, request_data)
+    await semaphore.acquire()
+    try:
+        instruction = (
+            f"Раздели этот текст на список тикеров и сообщений, относящимся к ним, строго в формате: "
+            f"#TICKER (название компании): сообщение (в одно предложение без переноса), с новой строки для каждого тикера, "
+            f"без дублирования и без генерации своего текста. Затем оцени сентимент каждой пары #TICKER (компания): сообщение, на шкале от 0 до 5, "
+            f"добавив после сообщения 'Оценка: число', где: 0 означает отсутствие информации, 1 - очень негативная информация, "
+            f"2 - скорее негативная информация, 3 - нейтральная информация, 4 - положительная информация, 5 - очень положительная информация."
+            f"ВНИМАНИЕ: Оценку следует добавить строго в этой же строке, без переноса на другу строку, даже если строка длинная и в ней есть непонятные символы. Это очень строгое условие. \n\n{row['MessageText']}"
+        )
+        messages = [{'role': 'user', 'content': instruction}]
+        request_data = {
+            'model': 'gpt-3.5-turbo',
+            'messages': messages
+        }
+        # Вызываем функцию call_openai_api для отправки запроса
+        api_response = await call_openai_api(session, api_key, request_data)
 
-    if api_response:
-        return {
-            'message_id': row['MessageID'],
-            'channel_id': row['ChannelID'],
-            'issuer_id': row['issuerid'],
-            'message_text': row['MessageText'],
-            'api_response': api_response
-        }
-    else:
-        return {
-            'message_id': row['MessageID'],
-            'channel_id': row['ChannelID'],
-            'issuer_id': row['issuerid'],
-            'message_text': row['MessageText'],
-            'api_response': {'error': 'Failed to process message', 'status_code': 'API Failure'}
-        }
+        if api_response:
+            return {
+                'message_id': row['MessageID'],
+                'channel_id': row['ChannelID'],
+                'issuer_id': row['issuerid'],
+                'message_text': row['MessageText'],
+                'api_response': api_response
+            }
+        else:
+            return {
+                'message_id': row['MessageID'],
+                'channel_id': row['ChannelID'],
+                'issuer_id': row['issuerid'],
+                'message_text': row['MessageText'],
+                'api_response': {'error': 'Failed to process message', 'status_code': 'API Failure'}
+            }
+    finally:
+        semaphore.release()
 
 
 async def parallel_process_messages(messages_df, api_keys):
     """Асинхронно обрабатывает сообщения, используя несколько API ключей."""
     connector = aiohttp.TCPConnector(limit_per_host=10)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = []
-        for index, row in messages_df.iterrows():
-            api_key = api_keys[index % len(api_keys)]
-            task = process_and_evaluate_single_message(session, row, api_key)
-            tasks.append(task)
+    timeout = ClientTimeout(total=60)  # Увеличение времени ожидания
+    semaphore = asyncio.Semaphore(20)  # Ограничение на 20 одновременных операций
+
+    async with ClientSession(connector=connector, timeout=timeout) as session:
+        tasks = [
+            process_and_evaluate_single_message(semaphore, session, row, api_keys[index % len(api_keys)])
+            for index, row in messages_df.iterrows()
+        ]
 
         processed_results = []
-        async for result in tqdm_asyncio(asyncio.as_completed(tasks), total=len(tasks), desc="Processing messages"):
+        for result in tqdm_asyncio(asyncio.as_completed(tasks), total=len(tasks), desc="Processing messages"):
             processed_results.append(await result)
         return processed_results
 
@@ -235,7 +242,7 @@ async def main():
     company_names = prepare_company_names(tickers_df)
 
     # Получение первых сообщений из DataFrame с сообщениями для обработки
-    sample_messages_df = messages_df.head(10)
+    sample_messages_df = messages_df.head(1000)
 
     # Обработка выбранных сообщений для разбиения текста на компании и сообщения
     processed_messages = await parallel_process_messages(sample_messages_df, api_keys)
