@@ -1,10 +1,8 @@
 import json
 import pathlib
 import typing as tp
-
-import final_solution
-import final_solution.solution_stupid
-
+import asyncio
+from solution.scripts.solution import main as main_solution
 
 PATH_TO_TEST_DATA = pathlib.Path("data") / "test_texts.json"
 PATH_TO_OUTPUT_DATA = pathlib.Path("results") / "output_scores.json"
@@ -22,11 +20,12 @@ def save_data(data, path: pathlib.PosixPath = PATH_TO_OUTPUT_DATA):
         json.dump(data, f, indent=1, ensure_ascii=False)
 
 
-def main():
-    texts = load_data()
-    scores = final_solution.solution.score_texts(texts)
-    save_data(scores)
+async def main():
+    # texts = load_data()
+    # scores = final_solution.solution.score_texts(texts)
+    # save_data(scores)
+    await main_solution()
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
