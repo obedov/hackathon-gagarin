@@ -74,7 +74,7 @@ def prepare_company_names(tickers_df):
     return company_names
 
 
-async def call_openai_api(session, api_key, request_data):
+async def call_openai_api(session, api_key, request_data, rate_limit_delay=1):
     api_url = 'https://api.openai.com/v1/chat/completions'
     headers = {
         'Authorization': f'Bearer {api_key}',
@@ -94,9 +94,18 @@ async def call_openai_api(session, api_key, request_data):
     else:
         proxy_url = None
 
+    # Пауза перед отправкой запроса для управления частотой запросов
+    await asyncio.sleep(rate_limit_delay)
+
     # Асинхронный запрос с использованием предоставленной сессии и настройкой прокси
     try:
         async with session.post(api_url, json=request_data, headers=headers, proxy=proxy_url) as response:
+            if response.status == 429:
+                # Обработка ошибки "Too Many Requests"
+                retry_after = int(response.headers.get('Retry-After', 60))
+                print(f"Rate limit exceeded, retrying after {retry_after} seconds")
+                await asyncio.sleep(retry_after)
+                return await call_openai_api(session, api_key, request_data)  # Рекурсивно повторяем запрос
             response.raise_for_status()
             return await response.json()
     except aiohttp.ClientError as e:
