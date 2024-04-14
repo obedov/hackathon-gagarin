@@ -213,6 +213,7 @@ async def parse_and_save_processed_messages(processed_results, company_names, fi
                                 issuerid = issuerid_ticker if issuerid_ticker else issuerid_company
 
                                 if issuerid:
+                                    print(line)
                                     result = {
                                         'channel_id': channel_id,
                                         'message_id': message_id,
