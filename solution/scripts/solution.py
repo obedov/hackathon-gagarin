@@ -82,7 +82,7 @@ async def call_openai_api(session, api_key, request_data, rate_limit_delay=1):
     }
 
     # Загружаем настройки прокси
-    proxy_config = await load_proxy_config('../env/proxy_configs.txt')
+    proxy_config = await load_proxy_config('solution/env/proxy_configs.txt')
     proxy_address = proxy_config.get('proxy_address', '')
     proxy_type = proxy_config.get('proxy_type', 'http')
     proxy_username = proxy_config.get('proxy_username', '')
@@ -242,11 +242,11 @@ async def parse_and_save_processed_messages(processed_results, company_names, fi
 
 async def main():
     # Загрузка сообщений и тикеров moex
-    messages_df = pd.read_csv('../processed/unique_mentions_texts.csv')
-    tickers_df = await load_tickers('../processed/moex.csv')
+    messages_df = pd.read_csv('solution/processed/unique_mentions_texts.csv')
+    tickers_df = await load_tickers('solution/processed/moex.csv')
 
     # Загрузка API ключей из файла
-    api_keys = await load_api_keys('../env/openai_api_keys.txt')
+    api_keys = await load_api_keys('solution/env/openai_api_keys.txt')
 
     # Подготовка словаря с названиями компаний из DataFrame, полученного из файла
     company_names = prepare_company_names(tickers_df)
