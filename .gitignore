@@ -1,6 +1,9 @@
 .venv
-
 final_solution/solution_stupid.py
-
-
 **.pyc
+
+.idea
+solution/dataset/*.pickle
+solution/env/*.*
+solution/task/*.*
+solution/processed/*.*
